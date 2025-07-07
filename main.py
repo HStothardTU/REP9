@@ -106,6 +106,88 @@ with col2:
         air_df = loaded["air"]
         st.info(f"Loaded scenario: {selected_scenario}")
 
+# --- Scenario Controls: 2050 Target Demand from Excel ---
+"""
+Scenario Controls Section (Excel-driven, 2050):
+If the user uploads the Excel file, extract 2050 demand targets for each sub-sector from the 'Model' sheet (columns for 2050). Use these as the default/locked values for the 2050 target inputs. If not uploaded, fall back to the current table value.
+"""
+st.header('Scenario Controls: Set 2050 Target Demand')
+
+current_year = years[0]
+target_year = 2050
+
+# Try to extract 2050 targets from Excel if uploaded
+road_2050_target = None
+rail_2050_target = None
+air_2050_target = None
+
+if uploaded_file:
+    xls = pd.ExcelFile(uploaded_file)
+    model_df = xls.parse("Model")
+    # Try to find 2050 column (as int or str)
+    col_2050 = None
+    for col in model_df.columns:
+        if str(col).strip() == "2050":
+            col_2050 = col
+            break
+    # Try to find row labels for each sub-sector
+    def find_row(label):
+        for i, v in enumerate(model_df.iloc[:,0]):
+            if isinstance(v, str) and label.lower() in v.lower():
+                return i
+        return None
+    road_row = find_row("road")
+    rail_row = find_row("rail")
+    air_row = find_row("air")
+    if col_2050 is not None:
+        if road_row is not None:
+            road_2050_target = float(model_df.iloc[road_row, model_df.columns.get_loc(col_2050)])
+        if rail_row is not None:
+            rail_2050_target = float(model_df.iloc[rail_row, model_df.columns.get_loc(col_2050)])
+        if air_row is not None:
+            air_2050_target = float(model_df.iloc[air_row, model_df.columns.get_loc(col_2050)])
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    road_2050_target = road_2050_target if road_2050_target is not None else float(road_df.loc[road_df['Year'] == target_year, 'Miles Traveled'].values[0])
+    st.number_input(
+        f'Road: Target Miles Traveled in {target_year}',
+        value=road_2050_target,
+        key='road_2050_target',
+        disabled=uploaded_file is not None
+    )
+with col2:
+    rail_2050_target = rail_2050_target if rail_2050_target is not None else float(rail_df.loc[rail_df['Year'] == target_year, 'Miles Traveled'].values[0])
+    st.number_input(
+        f'Rail: Target Miles Traveled in {target_year}',
+        value=rail_2050_target,
+        key='rail_2050_target',
+        disabled=uploaded_file is not None
+    )
+with col3:
+    air_2050_target = air_2050_target if air_2050_target is not None else float(air_df.loc[air_df['Year'] == target_year, 'Miles Traveled'].values[0])
+    st.number_input(
+        f'Air: Target Miles Traveled in {target_year}',
+        value=air_2050_target,
+        key='air_2050_target',
+        disabled=uploaded_file is not None
+    )
+
+def interpolate_demand(df, target_2050):
+    df = df.copy()
+    y0 = df.loc[df['Year'] == current_year, 'Miles Traveled'].values[0]
+    yT = target_2050
+    for y in range(current_year, target_year+1):
+        frac = (y - current_year) / (target_year - current_year) if target_year != current_year else 0
+        df.loc[df['Year'] == y, 'Miles Traveled'] = y0 + frac * (yT - y0)
+    return df
+
+if st.button(f'Apply {target_year} Targets to Scenario'):
+    road_df = interpolate_demand(road_df, st.session_state['road_2050_target'])
+    rail_df = interpolate_demand(rail_df, st.session_state['rail_2050_target'])
+    air_df = interpolate_demand(air_df, st.session_state['air_2050_target'])
+    st.success(f'{target_year} targets applied to scenario tables!')
+
 # --- Backcasting Calculation and UI ---
 """
 Backcasting Section:
