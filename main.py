@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 
-[theme]
 primaryColor = "#6eb52f"         # Net Zero green
 backgroundColor = "#ffffff"      # White background
 secondaryBackgroundColor = "#f0f0f5"  # Light gray for sidebar
