@@ -1,0 +1,46 @@
+# Optimization Logic for REHIP Model (Python + PuLP)
+
+This document explains the logic behind the optimization model implemented in Python using pandas and PuLP, as applied to the REHIP Model Excel file.
+
+---
+
+## 1. Load Data
+- The Excel file 'REHIP Model_V9-2.xlsx' is loaded using pandas.
+- The 'Model' sheet is parsed into a DataFrame (`model_df`).
+
+## 2. Define the Linear Programming (LP) Problem
+- The LP problem is created with the goal to **minimize total cost**.
+- PuLP is used to define the problem: `pulp.LpProblem("Minimize_Total_Cost", pulp.LpMinimize)`.
+
+## 3. Decision Variables
+- Decision variables `x_{i}_{j}` are created for a block of rows (67 to 100) and columns (2 to 30) in the model sheet.
+- Each variable represents a model decision (e.g., allocation, flow, or technology share) and is constrained to be non-negative.
+
+## 4. Objective Function
+- The objective is to **minimize the value in cell B398** (row 397, column 1 in zero-based indexing), which represents the total cost as calculated in the Excel model.
+- The objective value is added to the model: `model += objective_value, "Total_Cost_Objective"`.
+
+## 5. Constraints
+### a. Row Sum Constraint
+- The sum of values in row 7 (columns B to AD, i.e., columns 1 to 30) must be less than or equal to the value in cell B392 (row 391, column 1).
+- This is implemented as: `model += pulp.lpSum(row7_values) <= constraint_rhs, "Row7_Constraint"`.
+
+### b. Block Constraints (Element-wise ≤)
+- For each pair of blocks (e.g., rows 181–186 vs. 439–444), each element in the first block must be less than or equal to the corresponding element in the second block.
+- This is done for several block pairs, using nested loops over rows and columns.
+- Example: `model += lhs_block[i][j] <= rhs_block[i][j], f"Block_{idx}_r{i}_c{j}"`
+
+### c. Equality Constraints (Row Sums)
+- For rows 110–114 (zero-based 109–113), the sum of each row (columns 2–30) must equal 100.
+- This enforces that certain shares or allocations sum to 100%.
+- Example: `model += pulp.lpSum(values) == 100, f"Equality_Row_{row+1}"`
+
+## 6. Solve the Model
+- The LP problem is solved using PuLP's default solver.
+- The status and objective value are printed.
+- Optionally, the values of all decision variables can be printed for further analysis.
+
+---
+
+## Summary
+This logic extracts the structure and constraints from the Excel model and implements them in a transparent, reproducible Python optimization workflow. It enables scenario analysis, sensitivity testing, and optimization of fuel/technology choices under cost and policy constraints. 
