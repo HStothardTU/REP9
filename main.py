@@ -1,6 +1,14 @@
 import streamlit as st
 import pandas as pd
 
+[theme]
+primaryColor = "#6eb52f"         # Net Zero green
+backgroundColor = "#ffffff"      # White background
+secondaryBackgroundColor = "#f0f0f5"  # Light gray for sidebar
+textColor = "#262730"            # Dark gray text
+font = "sans serif" 
+
+
 st.title('REHIP Model Explorer')
 
 uploaded_file = st.file_uploader('Upload REHIP Model Excel file', type=['xlsx'])
