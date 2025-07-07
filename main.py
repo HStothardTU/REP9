@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import altair as alt
 
 # Add Net Zero logo to sidebar and header
 st.logo(
@@ -50,35 +51,123 @@ else:
     st.info('Please upload the REHIP Model Excel file to begin.')
 
 years = list(range(2022, 2051))
-
-st.sidebar.header('Scenario Controls: Initial Value and Annual % Change')
-# User sets initial value and annual % change for each fuel type
 fuel_types = ['Petrol', 'Diesel', 'H2', 'EV']
+
+# --- Scenario Management ---
+if 'scenarios' not in st.session_state:
+    st.session_state['scenarios'] = {}
+if 'scenario_name' not in st.session_state:
+    st.session_state['scenario_name'] = 'Base Scenario'
+
+st.sidebar.header('Scenario Controls')
+scenario_name = st.sidebar.text_input('Scenario Name', value=st.session_state['scenario_name'])
+
+# User sets initial value, annual % change, and target for each fuel type
 initials = {}
 changes = {}
+targets = {}
 for fuel in fuel_types:
-    initials[fuel] = st.sidebar.number_input(f'Initial {fuel} Demand (2022)', min_value=0.0, value=100.0, step=10.0)
-    changes[fuel] = st.sidebar.slider(f'Annual % Change for {fuel}', min_value=-20.0, max_value=20.0, value=0.0, step=0.5)
+    initials[fuel] = st.sidebar.number_input(f'Initial {fuel} Demand (2022)', min_value=0.0, value=100.0, step=10.0, key=f'init_{fuel}')
+    changes[fuel] = st.sidebar.slider(f'Annual % Change for {fuel}', min_value=-20.0, max_value=20.0, value=0.0, step=0.5, key=f'chg_{fuel}')
+    targets[fuel] = st.sidebar.number_input(f'Target {fuel} Demand (2050)', min_value=0.0, value=100.0, step=10.0, key=f'tgt_{fuel}')
 
-# Calculate year-by-year demand
+# Save scenario button
+if st.sidebar.button('Save Scenario'):
+    st.session_state['scenarios'][scenario_name] = {
+        'initials': initials.copy(),
+        'changes': changes.copy(),
+        'targets': targets.copy()
+    }
+    st.session_state['scenario_name'] = scenario_name
+    st.success(f"Scenario '{scenario_name}' saved!")
+
+# Scenario selector
+if st.session_state['scenarios']:
+    selected_scenarios = st.sidebar.multiselect(
+        'Compare Scenarios',
+        options=list(st.session_state['scenarios'].keys()),
+        default=[scenario_name]
+    )
+else:
+    selected_scenarios = []
+
+# Always include the current (unsaved) scenario as 'Current'
+selected_scenarios = ['Current'] + selected_scenarios
+scenarios_to_plot = {'Current': {'initials': initials, 'changes': changes, 'targets': targets}}
+for name in selected_scenarios:
+    if name != 'Current' and name in st.session_state['scenarios']:
+        scenarios_to_plot[name] = st.session_state['scenarios'][name]
+
+# --- Projection and Visualization ---
 def project_demand(initial, pct_change, years):
     vals = [initial]
     for _ in range(1, len(years)):
         vals.append(vals[-1] * (1 + pct_change / 100))
     return vals
 
-results = {}
-for fuel in fuel_types:
-    results[fuel] = project_demand(initials[fuel], changes[fuel], years)
-
-# Create DataFrame for display
-df_proj = pd.DataFrame(results, index=years)
+# Build a long DataFrame for Altair
+all_proj = []
+all_targets = []
+all_achieved = []
+for scen_name, params in scenarios_to_plot.items():
+    initials = params['initials']
+    changes = params['changes']
+    targets = params['targets']
+    for fuel in fuel_types:
+        vals = project_demand(initials[fuel], changes[fuel], years)
+        arr = np.array(vals)
+        idx = np.where(arr >= targets[fuel])[0]
+        achieved = years[idx[0]] if len(idx) > 0 else None
+        all_proj.append(pd.DataFrame({
+            'Year': years,
+            'Demand': vals,
+            'Fuel': fuel,
+            'Scenario': scen_name
+        }))
+        all_targets.append(pd.DataFrame({
+            'Year': years,
+            'Target': [targets[fuel]]*len(years),
+            'Fuel': fuel,
+            'Scenario': scen_name
+        }))
+        all_achieved.append({'Scenario': scen_name, 'Fuel': fuel, 'Achieved': achieved})
+proj_df = pd.concat(all_proj, ignore_index=True)
+target_df = pd.concat(all_targets, ignore_index=True)
+achieved_df = pd.DataFrame(all_achieved)
 
 st.subheader('Year-by-Year Fuel Demand Projections (2022–2050)')
-st.line_chart(df_proj)
-st.dataframe(df_proj.style.format('{:,.2f}'))
+# Altair chart with scenario comparison
+chart = alt.Chart(proj_df).mark_line().encode(
+    x='Year:O',
+    y='Demand:Q',
+    color='Scenario:N',
+    strokeDash='Fuel:N',
+    tooltip=['Year', 'Fuel', 'Scenario', 'Demand']
+)
+# Add target lines
+target_lines = alt.Chart(target_df).mark_line(strokeDash=[5,5], color='gray').encode(
+    x='Year:O',
+    y='Target:Q',
+    detail='Fuel:N',
+    color='Scenario:N'
+)
+final_chart = chart + target_lines
+st.altair_chart(final_chart, use_container_width=True)
 
-st.info('Adjust the initial values and annual % changes in the sidebar to see the effect on year-by-year fuel demand projections.') 
+# Show projections in a table
+st.dataframe(proj_df.pivot_table(index=['Year'], columns=['Scenario', 'Fuel'], values='Demand').round(2))
+
+# Show target achievement info
+for scen_name in scenarios_to_plot:
+    st.markdown(f"**Scenario: {scen_name}**")
+    for fuel in fuel_types:
+        achieved = achieved_df[(achieved_df['Scenario'] == scen_name) & (achieved_df['Fuel'] == fuel)]['Achieved'].values[0]
+        if achieved is not None:
+            st.success(f"{fuel}: Target met in {achieved}")
+        else:
+            st.warning(f"{fuel}: Target not met by 2050")
+
+st.info('You can define and save multiple scenarios, then compare their projections and target achievement in the chart and table.')
 
 st.sidebar.image("https://www.tees.ac.uk/minisites/netzero/images/netzero-logo.png", use_column_width=True)
 st.markdown("<h1 style='text-align: center; color: #6eb52f;'>Net Zero Transport Model</h1>", unsafe_allow_html=True)
