@@ -10,12 +10,17 @@ st.logo(
     size="large"
 )
 
-primaryColor = "#6eb52f"         # Net Zero green
-backgroundColor = "#ffffff"      # White background
-secondaryBackgroundColor = "#f0f0f5"  # Light gray for sidebar
-textColor = "#262730"            # Dark gray text
-font = "sans serif" 
-
+# Centered logo and subtitle at the top of the main page
+st.markdown(
+    """
+    <div style='text-align: center; margin-bottom: 0.5em;'>
+        <img src='assets/netzero-logo.svg' width='220' style='margin-bottom: 0.2em;'>
+        <h2 style='color: #6eb52f; margin-bottom: 0.2em;'>Net Zero Transport Model</h2>
+        <p style='color: #262730; font-size: 1.1em;'>Scenario Analysis & Fuel Demand Projections</p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 st.title('REHIP Model Explorer')
 
@@ -169,8 +174,6 @@ for scen_name in scenarios_to_plot:
 
 st.info('You can define and save multiple scenarios, then compare their projections and target achievement in the chart and table.')
 
-st.sidebar.image("https://www.tees.ac.uk/minisites/netzero/images/netzero-logo.png", use_column_width=True)
-st.markdown("<h1 style='text-align: center; color: #6eb52f;'>Net Zero Transport Model</h1>", unsafe_allow_html=True)
 
 st.markdown(
     '''
