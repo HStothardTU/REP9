@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import pulp
 
 # --- Calculation Functions (Refactored Backend Logic) ---
 """
@@ -59,13 +60,6 @@ def calculate_annual_cost(df, per_passenger_mile=False):
     else:
         return df['Cost per Mile'] * df['Miles Traveled']
 
-
-# Example: Insert a document
-collection.insert_one({"name": "test", "value": 123})
-
-# Example: Find a document
-result = collection.find_one({"name": "test"})
-print(result)
 
 # Add Net Zero logo to sidebar and header
 st.logo(
