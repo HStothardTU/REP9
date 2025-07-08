@@ -63,7 +63,7 @@ def calculate_annual_cost(df, per_passenger_mile=False):
 
 # Add Net Zero logo to sidebar and header
 st.logo(
-    "assets/netzero-logo.png",
+    "https://www.tees.ac.uk/minisites/netzero/images/netzero-logo.png",
     link="https://www.tees.ac.uk/minisites/netzero/index.cfm",
     size="large"
 )
