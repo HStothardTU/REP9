@@ -401,7 +401,7 @@ if uploaded_file:
         # Add more parameters as needed
     }
     if st.button("Generate Optimization Parameters with AI"):
-        api_key = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else None
+        api_key = st.secrets["GEMINI_API_KEY"]
         with st.spinner("Contacting Gemini AI..."):
             ai_params = call_gemini_and_parse(user_prompt, api_key)
         if ai_params:
