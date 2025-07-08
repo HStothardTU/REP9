@@ -325,6 +325,7 @@ def add_constraints(model, model_df, variables, params):
 
 # --- AI/LLM Natural Language Scenario Input Section ---
 st.header("AI-Assisted Scenario/Objective Input")
+st.markdown("After entering your scenario, click the **'Generate Optimization Parameters with AI'** button below.")
 user_prompt = st.text_area(
     "Describe your optimization goal or scenario (natural language):",
     placeholder="e.g., Minimize emissions while keeping costs under £1M and EV share above 30% by 2030."
@@ -335,7 +336,7 @@ def call_gemini_and_parse(prompt, api_key=None):
     Calls Google Gemini API with the user's prompt and parses the response into a params dict.
     """
     if api_key is None:
-        api_key = os.getenv("AIzaSyCkh0PrS1RlqSSwjHixY8E9QPvxKFFbcgM")  # Or set your key directly here
+        api_key = os.getenv("GEMINI_API_KEY")  # Or set your key directly here
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     headers = {
@@ -352,10 +353,7 @@ def call_gemini_and_parse(prompt, api_key=None):
     }
     response = requests.post(url, headers=headers, json=data)
     if response.status_code == 200:
-        # You will need to parse the response to extract the params dict
-        # For now, just print or return the raw response for inspection
         gemini_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-        # TODO: Implement parse_llm_response(gemini_text) to convert to params dict
         return parse_llm_response(gemini_text)
     else:
         st.error(f"Gemini API error: {response.status_code} {response.text}")
@@ -394,23 +392,23 @@ if uploaded_file:
     variables = {(i, j): pulp.LpVariable(f"x_{i}_{j}", lowBound=0) for i in rows for j in cols}
 
     # --- AI/User parameter input section ---
+    params = {
+        'objective': 'cost',  # 'cost', 'emissions', or 'weighted'
+        'row7_constraint': True,
+        'max_change_per_year': None,  # e.g., 10000 or None
+        'block_constraints': True,
+        'equality_constraints': True,
+        # Add more parameters as needed
+    }
     if st.button("Generate Optimization Parameters with AI"):
         api_key = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else None
-        params = call_gemini_and_parse(user_prompt, api_key)
-        if params:
+        with st.spinner("Contacting Gemini AI..."):
+            ai_params = call_gemini_and_parse(user_prompt, api_key)
+        if ai_params:
+            params = ai_params
             st.write("**AI-generated optimization parameters:**", params)
         else:
             st.warning("Failed to generate parameters from Gemini.")
-    else:
-        # Default/fallback params
-        params = {
-            'objective': 'cost',  # 'cost', 'emissions', or 'weighted'
-            'row7_constraint': True,
-            'max_change_per_year': None,  # e.g., 10000 or None
-            'block_constraints': True,
-            'equality_constraints': True,
-            # Add more parameters as needed
-        }
 
     add_objective(model, model_df, variables, params)
     add_constraints(model, model_df, variables, params)
