@@ -1,21 +1,81 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pulp
+
+# --- Calculation Functions (Refactored Backend Logic) ---
+"""
+Calculation Functions Section:
+Provides robust, reusable functions for calculating total CO2 emissions and costs for each transport mode and for totals.
+
+Limitations:
+- Teesside data estimation: Data for Teesside is estimated where direct data is unavailable.
+- Goods train exclusion: Goods (freight) trains are not included in the calculations.
+- Commercial flights only: Only commercial flights are considered for the air sector.
+These limitations are reflected in the data processing and should be clearly communicated to users.
+"""
+def calculate_total_co2_emissions(df, per_passenger_mile=False):
+    """
+    Calculate total CO2 emissions for a given transport mode DataFrame.
+    If per_passenger_mile is True, uses 'CO2 per pg.mile' and 'pg.miles_travelled'.
+    Otherwise, uses 'CO2 per Mile' and 'Miles Traveled'.
+    """
+    if per_passenger_mile:
+        if 'CO2 per pg.mile' in df.columns and 'pg.miles_travelled' in df.columns:
+            return (df['CO2 per pg.mile'] * df['pg.miles_travelled']).sum()
+        else:
+            raise ValueError("DataFrame must contain 'CO2 per pg.mile' and 'pg.miles_travelled' columns for per_passenger_mile calculation.")
+    else:
+        return (df['CO2 per Mile'] * df['Miles Traveled']).sum()
+
+def calculate_total_cost(df, per_passenger_mile=False):
+    """
+    Calculate total cost for a given transport mode DataFrame.
+    If per_passenger_mile is True, uses 'Cost per pg.mile' and 'pg.miles_travelled'.
+    Otherwise, uses 'Cost per Mile' and 'Miles Traveled'.
+    """
+    if per_passenger_mile:
+        if 'Cost per pg.mile' in df.columns and 'pg.miles_travelled' in df.columns:
+            return (df['Cost per pg.mile'] * df['pg.miles_travelled']).sum()
+        else:
+            raise ValueError("DataFrame must contain 'Cost per pg.mile' and 'pg.miles_travelled' columns for per_passenger_mile calculation.")
+    else:
+        return (df['Cost per Mile'] * df['Miles Traveled']).sum()
+
+def calculate_annual_emissions(df, per_passenger_mile=False):
+    """
+    Returns a Series of total CO2 emissions per year for the given DataFrame.
+    """
+    if per_passenger_mile:
+        return df['CO2 per pg.mile'] * df['pg.miles_travelled']
+    else:
+        return df['CO2 per Mile'] * df['Miles Traveled']
+
+def calculate_annual_cost(df, per_passenger_mile=False):
+    """
+    Returns a Series of total cost per year for the given DataFrame.
+    """
+    if per_passenger_mile:
+        return df['Cost per pg.mile'] * df['pg.miles_travelled']
+    else:
+        return df['Cost per Mile'] * df['Miles Traveled']
+
+
+# Example: Insert a document
+collection.insert_one({"name": "test", "value": 123})
+
+# Example: Find a document
+result = collection.find_one({"name": "test"})
+print(result)
 
 # Add Net Zero logo to sidebar and header
 st.logo(
-    "https://www.tees.ac.uk/minisites/netzero/images/netzero-logo.png",
+    "assets/netzero-logo.png",
     link="https://www.tees.ac.uk/minisites/netzero/index.cfm",
     size="large"
 )
 
 # --- Branding/Header Section ---
-"""
-Branding/Header Section:
-Displays the Net Zero logo and project title at the top of the app using HTML for centering and styling.
-This reinforces project identity and provides a professional look.
-"""
+
 st.markdown(
     """
     <div style='text-align: center; margin-bottom: 0.5em;'>
@@ -106,87 +166,79 @@ with col2:
         air_df = loaded["air"]
         st.info(f"Loaded scenario: {selected_scenario}")
 
-# --- Scenario Controls: 2050 Target Demand from Excel ---
+# --- Scenario Controls: Current Year and 2025 Target Demand ---
 """
-Scenario Controls Section (Excel-driven, 2050):
-If the user uploads the Excel file, extract 2050 demand targets for each sub-sector from the 'Model' sheet (columns for 2050). Use these as the default/locked values for the 2050 target inputs. If not uploaded, fall back to the current table value.
+Scenario Controls Section:
+Allows users to set the current year's demand (from the editable table) and a target demand for 2025 for each sub-sector. When a scenario is created or loaded, the app interpolates demand from the current year to the 2025 target, and uses this as the baseline for projections.
 """
-st.header('Scenario Controls: Set 2050 Target Demand')
+st.header('Scenario Controls: Set 2025 Target Demand')
 
+# Get current year (first year in years list)
 current_year = years[0]
-target_year = 2050
 
-# Try to extract 2050 targets from Excel if uploaded
-road_2050_target = None
-rail_2050_target = None
-air_2050_target = None
-
-if uploaded_file:
-    xls = pd.ExcelFile(uploaded_file)
-    model_df = xls.parse("Model")
-    # Try to find 2050 column (as int or str)
-    col_2050 = None
-    for col in model_df.columns:
-        if str(col).strip() == "2050":
-            col_2050 = col
-            break
-    # Try to find row labels for each sub-sector
-    def find_row(label):
-        for i, v in enumerate(model_df.iloc[:,0]):
-            if isinstance(v, str) and label.lower() in v.lower():
-                return i
-        return None
-    road_row = find_row("road")
-    rail_row = find_row("rail")
-    air_row = find_row("air")
-    if col_2050 is not None:
-        if road_row is not None:
-            road_2050_target = float(model_df.iloc[road_row, model_df.columns.get_loc(col_2050)])
-        if rail_row is not None:
-            rail_2050_target = float(model_df.iloc[rail_row, model_df.columns.get_loc(col_2050)])
-        if air_row is not None:
-            air_2050_target = float(model_df.iloc[air_row, model_df.columns.get_loc(col_2050)])
-
+# UI for 2025 target demand for each sub-sector
 col1, col2, col3 = st.columns(3)
 with col1:
-    road_2050_target = road_2050_target if road_2050_target is not None else float(road_df.loc[road_df['Year'] == target_year, 'Miles Traveled'].values[0])
-    st.number_input(
-        f'Road: Target Miles Traveled in {target_year}',
-        value=road_2050_target,
-        key='road_2050_target',
-        disabled=uploaded_file is not None
+    road_2025_target = st.number_input(
+        'Road: Target Miles Traveled in 2025',
+        value=float(road_df.loc[road_df['Year'] == 2025, 'Miles Traveled'].values[0])
     )
 with col2:
-    rail_2050_target = rail_2050_target if rail_2050_target is not None else float(rail_df.loc[rail_df['Year'] == target_year, 'Miles Traveled'].values[0])
-    st.number_input(
-        f'Rail: Target Miles Traveled in {target_year}',
-        value=rail_2050_target,
-        key='rail_2050_target',
-        disabled=uploaded_file is not None
+    rail_2025_target = st.number_input(
+        'Rail: Target Miles Traveled in 2025',
+        value=float(rail_df.loc[rail_df['Year'] == 2025, 'Miles Traveled'].values[0])
     )
 with col3:
-    air_2050_target = air_2050_target if air_2050_target is not None else float(air_df.loc[air_df['Year'] == target_year, 'Miles Traveled'].values[0])
-    st.number_input(
-        f'Air: Target Miles Traveled in {target_year}',
-        value=air_2050_target,
-        key='air_2050_target',
-        disabled=uploaded_file is not None
+    air_2025_target = st.number_input(
+        'Air: Target Miles Traveled in 2025',
+        value=float(air_df.loc[air_df['Year'] == 2025, 'Miles Traveled'].values[0])
     )
 
-def interpolate_demand(df, target_2050):
+def interpolate_demand(df, target_2025):
+    """Interpolate Miles Traveled from current year to 2025 target, then keep rest as is."""
     df = df.copy()
     y0 = df.loc[df['Year'] == current_year, 'Miles Traveled'].values[0]
-    yT = target_2050
-    for y in range(current_year, target_year+1):
-        frac = (y - current_year) / (target_year - current_year) if target_year != current_year else 0
-        df.loc[df['Year'] == y, 'Miles Traveled'] = y0 + frac * (yT - y0)
+    y5 = target_2025
+    for y in range(current_year, 2026):
+        frac = (y - current_year) / (2025 - current_year) if 2025 != current_year else 0
+        df.loc[df['Year'] == y, 'Miles Traveled'] = y0 + frac * (y5 - y0)
     return df
 
-if st.button(f'Apply {target_year} Targets to Scenario'):
-    road_df = interpolate_demand(road_df, st.session_state['road_2050_target'])
-    rail_df = interpolate_demand(rail_df, st.session_state['rail_2050_target'])
-    air_df = interpolate_demand(air_df, st.session_state['air_2050_target'])
-    st.success(f'{target_year} targets applied to scenario tables!')
+# Apply interpolation to scenario tables before saving/loading
+if st.button('Apply 2025 Targets to Scenario'):
+    road_df = interpolate_demand(road_df, road_2025_target)
+    rail_df = interpolate_demand(rail_df, rail_2025_target)
+    air_df = interpolate_demand(air_df, air_2025_target)
+    st.success('2025 targets applied to scenario tables!')
+
+# --- Enhanced Scenario Modeling Section ---
+st.header("Scenario Modeling: Adjust Parameters and Run What-Ifs")
+
+with st.expander("Advanced Scenario Parameters", expanded=False):
+    st.markdown("Adjust fuel shares and adoption rates for each sector.")
+    # Example sliders for fuel shares (can be expanded for more detail)
+    road_petrol_share = st.slider("Road: Petrol Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share Petrol'].values[0]), 0.01)
+    road_diesel_share = st.slider("Road: Diesel Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share Diesel'].values[0]), 0.01)
+    road_ev_share = st.slider("Road: EV Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share EV'].values[0]), 0.01)
+    # Normalize shares
+    total_share = road_petrol_share + road_diesel_share + road_ev_share
+    if total_share > 0:
+        road_petrol_share /= total_share
+        road_diesel_share /= total_share
+        road_ev_share /= total_share
+    # Apply to 2025 and beyond
+    for y in years:
+        if y >= 2025:
+            road_df.loc[road_df['Year'] == y, 'Fuel Share Petrol'] = road_petrol_share
+            road_df.loc[road_df['Year'] == y, 'Fuel Share Diesel'] = road_diesel_share
+            road_df.loc[road_df['Year'] == y, 'Fuel Share EV'] = road_ev_share
+    # (Repeat for rail and air if needed)
+    # Add more controls for adoption rates, policy levers, etc.
+
+if st.button("Run Scenario"):
+    st.success("Scenario updated! All visualizations reflect the new parameters.")
+    # In a full implementation, recalculate all outputs and update charts here.
+    # (Future: Add scenario comparison, participatory features, etc.)
 
 # --- Backcasting Calculation and UI ---
 """
@@ -198,11 +250,11 @@ st.header("Backcasting: Set End Goals and See Required Changes")
 backcast_mode = st.checkbox("Enable Backcasting")
 if backcast_mode:
     target_emissions = st.number_input("Target total CO₂ emissions in 2050 (all sub-sectors)", value=0.0)
-    # Calculate total emissions for 2022 and 2050
+    # Calculate total emissions for 2022 and 2050 using backend functions
     total_emissions_2022 = (
-        road_df.loc[road_df["Year"] == 2022, "Miles Traveled"].values[0] * road_df.loc[road_df["Year"] == 2022, "CO2 per Mile"].values[0] +
-        rail_df.loc[rail_df["Year"] == 2022, "Miles Traveled"].values[0] * rail_df.loc[rail_df["Year"] == 2022, "CO2 per Mile"].values[0] +
-        air_df.loc[air_df["Year"] == 2022, "Miles Traveled"].values[0] * air_df.loc[air_df["Year"] == 2022, "CO2 per Mile"].values[0]
+        calculate_annual_emissions(road_df)[road_df["Year"] == 2022].values[0] +
+        calculate_annual_emissions(rail_df)[rail_df["Year"] == 2022].values[0] +
+        calculate_annual_emissions(air_df)[air_df["Year"] == 2022].values[0]
     )
     n_years = 2050 - 2022
     # Required annual % change in emissions to reach target
@@ -220,9 +272,9 @@ This provides a quick overview of the emissions trajectory for the current scena
 """
 st.header("Summary Table: Total Emissions by Year")
 total_emissions = [
-    road_df.loc[road_df["Year"] == y, "Miles Traveled"].values[0] * road_df.loc[road_df["Year"] == y, "CO2 per Mile"].values[0] +
-    rail_df.loc[rail_df["Year"] == y, "Miles Traveled"].values[0] * rail_df.loc[rail_df["Year"] == y, "CO2 per Mile"].values[0] +
-    air_df.loc[air_df["Year"] == y, "Miles Traveled"].values[0] * air_df.loc[air_df["Year"] == y, "CO2 per Mile"].values[0]
+    calculate_annual_emissions(road_df)[road_df["Year"] == y].values[0] +
+    calculate_annual_emissions(rail_df)[rail_df["Year"] == y].values[0] +
+    calculate_annual_emissions(air_df)[air_df["Year"] == y].values[0]
     for y in years
 ]
 emissions_df = pd.DataFrame({"Year": years, "Total Emissions": total_emissions})
@@ -282,6 +334,36 @@ if uploaded_file:
     #     st.write(var.name, "=", var.varValue)
 else:
     st.info("Upload the REHIP Model Excel file to run the optimization model.")
+
+# --- Dashboard Visualizations Section ---
+st.header("Dashboard: Visualize Key Metrics")
+
+# Line chart: Total CO2 emissions by year (all sectors)
+st.subheader("Total CO₂ Emissions by Year (All Sectors)")
+st.line_chart(emissions_df.set_index("Year")[["Total Emissions"]])
+
+# Line chart: Total cost by year (all sectors)
+st.subheader("Total Cost by Year (All Sectors)")
+total_costs = [
+    calculate_annual_cost(road_df)[road_df["Year"] == y].values[0] +
+    calculate_annual_cost(rail_df)[rail_df["Year"] == y].values[0] +
+    calculate_annual_cost(air_df)[air_df["Year"] == y].values[0]
+    for y in years
+]
+costs_df = pd.DataFrame({"Year": years, "Total Cost": total_costs})
+st.line_chart(costs_df.set_index("Year")[["Total Cost"]])
+
+# Stacked bar chart: Miles traveled by sector (quick version with st.bar_chart)
+st.subheader("Miles Traveled by Sector (Stacked Bar)")
+miles_df = pd.DataFrame({
+    "Year": years,
+    "Road": [road_df.loc[road_df["Year"] == y, "Miles Traveled"].values[0] for y in years],
+    "Rail": [rail_df.loc[rail_df["Year"] == y, "Miles Traveled"].values[0] for y in years],
+    "Air": [air_df.loc[air_df["Year"] == y, "Miles Traveled"].values[0] for y in years],
+})
+st.bar_chart(miles_df.set_index("Year"))
+
+# (Optional) For more advanced/interactive charts, use plotly or matplotlib here.
 
 
 st.markdown(
