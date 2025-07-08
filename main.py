@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pulp
+import requests
+import os
 
 # --- Calculation Functions (Refactored Backend Logic) ---
 """
@@ -274,12 +276,108 @@ total_emissions = [
 emissions_df = pd.DataFrame({"Year": years, "Total Emissions": total_emissions})
 st.dataframe(emissions_df)
 
-# --- Optimization Logic Section ---
-"""
-Optimization Logic Section:
-Loads the 'Model' sheet from the Excel file, sets up the LP problem using PuLP, defines decision variables, objective, and constraints, and solves the model.
-Displays the optimization status and objective value in the Streamlit app.
-"""
+# --- Modular Optimization Logic Section ---
+def add_objective(model, model_df, variables, params):
+    """
+    Adds the objective function to the model based on params['objective'].
+    Extend this function to support cost, emissions, or weighted objectives.
+    """
+    if params.get('objective', 'cost') == 'cost':
+        objective_value = model_df.iloc[397, 1]
+        model += objective_value, "Total_Cost_Objective"
+    elif params['objective'] == 'emissions':
+        # Example: model += emissions_expr, "Total_Emissions_Objective"
+        pass
+    # Add more options as needed
+
+def add_constraints(model, model_df, variables, params):
+    """
+    Adds constraints to the model based on params.
+    Extend this function to support toggling constraints, max change per year, etc.
+    """
+    # Row 7 constraint
+    if params.get('row7_constraint', True):
+        row7_values = model_df.iloc[6, 1:30].fillna(0).values
+        constraint_rhs = model_df.iloc[391, 1]
+        model += pulp.lpSum(row7_values) <= constraint_rhs, "Row7_Constraint"
+    # Max change per year constraint (example, can be expanded)
+    if params.get('max_change_per_year', None) is not None:
+        max_change = params['max_change_per_year']
+        for i in range(68, 101):  # Example: years 68-100
+            for j in range(2, 31):
+                model += variables[(i, j)] - variables[(i-1, j)] <= max_change, f"MaxIncrease_{i}_{j}"
+                model += variables[(i-1, j)] - variables[(i, j)] <= max_change, f"MaxDecrease_{i}_{j}"
+    # Block constraints (optional, can be toggled)
+    if params.get('block_constraints', True):
+        row_pairs = [(181, 439), (231, 446), (281, 453), (331, 460), (131, 432)]
+        for idx, (lhs_start, rhs_start) in enumerate(row_pairs):
+            lhs_block = model_df.iloc[lhs_start:lhs_start+6, 2:31].fillna(0).values
+            rhs_block = model_df.iloc[rhs_start:rhs_start+6, 2:31].fillna(0).values
+            for i in range(6):
+                for j in range(29):
+                    model += variables[(i+lhs_start, j+2)] <= rhs_block[i][j], f"Block_{idx}_r{i}_c{j}"
+    # Equality constraints
+    if params.get('equality_constraints', True):
+        for row in range(109, 114):
+            values = model_df.iloc[row, 2:31].fillna(0).values
+            model += pulp.lpSum(values) == 100, f"Equality_Row_{row+1}"
+    # Add more constraints as needed
+
+# --- AI/LLM Natural Language Scenario Input Section ---
+st.header("AI-Assisted Scenario/Objective Input")
+user_prompt = st.text_area(
+    "Describe your optimization goal or scenario (natural language):",
+    placeholder="e.g., Minimize emissions while keeping costs under £1M and EV share above 30% by 2030."
+)
+
+def call_gemini_and_parse(prompt, api_key=None):
+    """
+    Calls Google Gemini API with the user's prompt and parses the response into a params dict.
+    """
+    if api_key is None:
+        api_key = os.getenv("AIzaSyCkh0PrS1RlqSSwjHixY8E9QPvxKFFbcgM")  # Or set your key directly here
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    data = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 200:
+        # You will need to parse the response to extract the params dict
+        # For now, just print or return the raw response for inspection
+        gemini_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+        # TODO: Implement parse_llm_response(gemini_text) to convert to params dict
+        return parse_llm_response(gemini_text)
+    else:
+        st.error(f"Gemini API error: {response.status_code} {response.text}")
+        return None
+
+# Example parser for LLM response (to be customized for your prompt/response format)
+def parse_llm_response(llm_text):
+    """
+    Parse the LLM's text response into a params dictionary.
+    This is a placeholder; implement robust parsing for your use case.
+    """
+    # Example: Use regex, json.loads, or custom logic
+    # For now, return a static dict
+    return {
+        'objective': 'cost',
+        'row7_constraint': True,
+        'max_change_per_year': None,
+        'block_constraints': True,
+        'equality_constraints': True,
+    }
+
+# --- Optimization Model (from Excel Sheet) ---
 st.header("Optimization Model (from Excel Sheet)")
 
 uploaded_file = st.file_uploader("Upload REHIP Model Excel file for Optimization", type=["xlsx"])
@@ -295,28 +393,27 @@ if uploaded_file:
     cols = range(2, 31)
     variables = {(i, j): pulp.LpVariable(f"x_{i}_{j}", lowBound=0) for i in rows for j in cols}
 
-    # Objective: Minimize B398 (value shown in sheet)
-    objective_value = model_df.iloc[397, 1]
-    model += objective_value, "Total_Cost_Objective"
+    # --- AI/User parameter input section ---
+    if st.button("Generate Optimization Parameters with AI"):
+        api_key = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else None
+        params = call_gemini_and_parse(user_prompt, api_key)
+        if params:
+            st.write("**AI-generated optimization parameters:**", params)
+        else:
+            st.warning("Failed to generate parameters from Gemini.")
+    else:
+        # Default/fallback params
+        params = {
+            'objective': 'cost',  # 'cost', 'emissions', or 'weighted'
+            'row7_constraint': True,
+            'max_change_per_year': None,  # e.g., 10000 or None
+            'block_constraints': True,
+            'equality_constraints': True,
+            # Add more parameters as needed
+        }
 
-    # Constraint 1: Sum of row 7 values (B7 to AD7) <= B392
-    row7_values = model_df.iloc[6, 1:30].fillna(0).values
-    constraint_rhs = model_df.iloc[391, 1]
-    model += pulp.lpSum(row7_values) <= constraint_rhs, "Row7_Constraint"
-
-    # Block constraints (element-wise ≤)
-    row_pairs = [(181, 439), (231, 446), (281, 453), (331, 460), (131, 432)]
-    for idx, (lhs_start, rhs_start) in enumerate(row_pairs):
-        lhs_block = model_df.iloc[lhs_start:lhs_start+6, 2:31].fillna(0).values
-        rhs_block = model_df.iloc[rhs_start:rhs_start+6, 2:31].fillna(0).values
-        for i in range(6):
-            for j in range(29):
-                model += lhs_block[i][j] <= rhs_block[i][j], f"Block_{idx}_r{i}_c{j}"
-
-    # Equality constraints: each row sum = 100 for rows 110–114
-    for row in range(109, 114):
-        values = model_df.iloc[row, 2:31].fillna(0).values
-        model += pulp.lpSum(values) == 100, f"Equality_Row_{row+1}"
+    add_objective(model, model_df, variables, params)
+    add_constraints(model, model_df, variables, params)
 
     # Solve the model
     model.solve()
