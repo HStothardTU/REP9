@@ -5,6 +5,50 @@ import pulp
 import requests
 import os
 
+# --- Data Initialization Functions ---
+def make_default_df(sector):
+    """Create default DataFrames for each transport sector with sample data."""
+    years = list(range(2022, 2051))
+    
+    if sector == 'road':
+        data = {
+            'Year': years,
+            'Miles Traveled': [1000000 + i*50000 for i in range(len(years))],
+            'CO2 per Mile': [0.25 - i*0.005 for i in range(len(years))],
+            'Cost per Mile': [0.12 - i*0.002 for i in range(len(years))],
+            'Fuel Share Petrol': [0.7 - i*0.02 for i in range(len(years))],
+            'Fuel Share Diesel': [0.2 - i*0.01 for i in range(len(years))],
+            'Fuel Share EV': [0.1 + i*0.03 for i in range(len(years))]
+        }
+    elif sector == 'rail':
+        data = {
+            'Year': years,
+            'Miles Traveled': [200000 + i*10000 for i in range(len(years))],
+            'CO2 per Mile': [0.15 - i*0.003 for i in range(len(years))],
+            'Cost per Mile': [0.08 - i*0.001 for i in range(len(years))],
+            'Fuel Share Diesel': [0.8 - i*0.02 for i in range(len(years))],
+            'Fuel Share Electric': [0.2 + i*0.02 for i in range(len(years))]
+        }
+    elif sector == 'air':
+        data = {
+            'Year': years,
+            'Miles Traveled': [50000 + i*2000 for i in range(len(years))],
+            'CO2 per Mile': [0.5 - i*0.008 for i in range(len(years))],
+            'Cost per Mile': [0.25 - i*0.003 for i in range(len(years))],
+            'Fuel Share Jet Fuel': [0.95 - i*0.01 for i in range(len(years))],
+            'Fuel Share SAF': [0.05 + i*0.01 for i in range(len(years))]
+        }
+    else:
+        raise ValueError(f"Unknown sector: {sector}")
+    
+    return pd.DataFrame(data)
+
+# Initialize default data
+years = list(range(2022, 2051))
+road_df = make_default_df('road')
+rail_df = make_default_df('rail')
+air_df = make_default_df('air')
+
 # --- Calculation Functions (Refactored Backend Logic) ---
 """
 Calculation Functions Section:
@@ -62,6 +106,36 @@ def calculate_annual_cost(df, per_passenger_mile=False):
     else:
         return df['Cost per Mile'] * df['Miles Traveled']
 
+# --- Summary Output Section (Moved up for initialization) ---
+"""
+Summary Output Section:
+Calculates and displays a table of total emissions by year, summing across all sub-sectors.
+This provides a quick overview of the emissions trajectory for the current scenario.
+"""
+total_emissions = [
+    calculate_annual_emissions(road_df)[road_df["Year"] == y].values[0] +
+    calculate_annual_emissions(rail_df)[rail_df["Year"] == y].values[0] +
+    calculate_annual_emissions(air_df)[air_df["Year"] == y].values[0]
+    for y in years
+]
+emissions_df = pd.DataFrame({"Year": years, "Total Emissions": total_emissions})
+
+# Calculate total costs for dashboard
+total_costs = [
+    calculate_annual_cost(road_df)[road_df["Year"] == y].values[0] +
+    calculate_annual_cost(rail_df)[rail_df["Year"] == y].values[0] +
+    calculate_annual_cost(air_df)[air_df["Year"] == y].values[0]
+    for y in years
+]
+costs_df = pd.DataFrame({"Year": years, "Total Cost": total_costs})
+
+# Calculate miles traveled for dashboard
+miles_df = pd.DataFrame({
+    "Year": years,
+    "Road": [road_df.loc[road_df["Year"] == y, "Miles Traveled"].values[0] for y in years],
+    "Rail": [rail_df.loc[rail_df["Year"] == y, "Miles Traveled"].values[0] for y in years],
+    "Air": [air_df.loc[air_df["Year"] == y, "Miles Traveled"].values[0] for y in years],
+})
 
 # Add Net Zero logo to sidebar and header
 st.logo(
@@ -70,66 +144,227 @@ st.logo(
     size="large"
 )
 
-# --- Branding/Header Section ---
+# --- Sidebar Navigation ---
+st.sidebar.title('🚦 Net Zero Transport Model')
+st.sidebar.markdown('---')
+section = st.sidebar.radio(
+    'Jump to section:',
+    [
+        '🏠 Home',
+        '📝 Data Input',
+        '🔬 Scenario Modeling',
+        '📈 Dashboard',
+        '🤖 AI Optimization',
+        '⚙️ Settings'
+    ]
+)
 
+# --- Custom CSS for Color Scheme and Spacing ---
 st.markdown(
-    """
-    <div style='text-align: center; margin-bottom: 0.5em;'>
-        <img src='assets/netzero-logo.svg' width='220' style='margin-bottom: 0.2em;'>
-        <h2 style='color: #6eb52f; margin-bottom: 0.2em;'>Net Zero Transport Model</h2>
-        <p style='color: #262730; font-size: 1.1em;'>Scenario Analysis & Fuel Demand Projections</p>
-    </div>
-    """,
+    '''
+    <style>
+    body, [data-testid="stAppViewContainer"] {
+        background-color: #f7fafc;
+    }
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    h1, h2, h3, h4 {
+        color: #2d572c;
+    }
+    .stButton>button {
+        background-color: #6eb52f;
+        color: white;
+        border-radius: 8px;
+        font-weight: bold;
+    }
+    .stButton>button:hover {
+        background-color: #4e8c1a;
+        color: #fff;
+    }
+    .stRadio>div>label {
+        font-size: 1.1em;
+    }
+    </style>
+    ''',
     unsafe_allow_html=True
 )
 
-st.title('REHIP Model Explorer')
+# --- Section Routing ---
+if section == '🏠 Home':
+    st.title('🚦 Net Zero Transport Model')
+    st.markdown('''
+    Welcome to the Net Zero Transport Model Explorer! Use the sidebar to navigate between sections.
+    ''')
+    st.markdown('---')
+    st.image("https://www.tees.ac.uk/minisites/netzero/images/netzero-logo.png", width=220)
+    st.markdown('---')
+    st.markdown('**Project by Teesside University**')
 
-years = list(range(2022, 2051))
+elif section == '📝 Data Input':
+    st.header('📝 Data Input')
+    st.markdown('---')
+    st.markdown('Edit transport sector data below:')
+    st.header('Editable Inputs by Sub-sector')
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.subheader('🚗 Road')
+        road_df = st.data_editor(road_df, num_rows="dynamic", key="road_editor")
+    with col2:
+        st.subheader('🚆 Rail')
+        rail_df = st.data_editor(rail_df, num_rows="dynamic", key="rail_editor")
+    with col3:
+        st.subheader('✈️ Air')
+        air_df = st.data_editor(air_df, num_rows="dynamic", key="air_editor")
 
-# --- Editable Tables for All Sub-sectors ---
-"""
-Editable Tables Section:
-Provides editable tables for Road, Rail, and Air sub-sectors using st.data_editor.
-Each table allows users to input or adjust miles traveled, fuel shares, costs, and emission factors for each year.
-These tables are the core data input for scenario analysis and projections.
-"""
-def make_default_df(subsector):
-    if subsector == 'road':
-        return pd.DataFrame({
-            "Year": years,
-            "Miles Traveled": [1_000_000]*len(years),
-            "Fuel Share Petrol": [0.5]*len(years),
-            "Fuel Share Diesel": [0.3]*len(years),
-            "Fuel Share EV": [0.2]*len(years),
-            "Cost per Mile": [0.10]*len(years),
-            "CO2 per Mile": [0.2]*len(years),
-            "Occupancy": [1.5]*len(years),
-        })
-    elif subsector == 'rail':
-        return pd.DataFrame({
-            "Year": years,
-            "Miles Traveled": [100_000]*len(years),
-            "Fuel Share Diesel": [0.7]*len(years),
-            "Fuel Share Electric": [0.3]*len(years),
-            "Cost per Mile": [0.08]*len(years),
-            "CO2 per Mile": [0.15]*len(years),
-            "Occupancy": [50]*len(years),
-        })
-    elif subsector == 'air':
-        return pd.DataFrame({
-            "Year": years,
-            "Miles Traveled": [50_000]*len(years),
-            "Fuel Share Kerosene": [1.0]*len(years),
-            "Cost per Mile": [0.5]*len(years),
-            "CO2 per Mile": [0.5]*len(years),
-            "Occupancy": [120]*len(years),
-        })
+elif section == '🔬 Scenario Modeling':
+    st.header('🔬 Scenario Modeling')
+    st.markdown('---')
+    st.header("Scenario Modeling: Adjust Parameters and Run What-Ifs")
+    with st.expander("Advanced Scenario Parameters", expanded=False):
+        st.markdown("Adjust fuel shares and adoption rates for each sector.")
+        # Example sliders for fuel shares (can be expanded for more detail)
+        road_petrol_share = st.slider("Road: Petrol Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share Petrol'].values[0]), 0.01)
+        road_diesel_share = st.slider("Road: Diesel Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share Diesel'].values[0]), 0.01)
+        road_ev_share = st.slider("Road: EV Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share EV'].values[0]), 0.01)
+        # Normalize shares
+        total_share = road_petrol_share + road_diesel_share + road_ev_share
+        if total_share > 0:
+            road_petrol_share /= total_share
+            road_diesel_share /= total_share
+            road_ev_share /= total_share
+        # Apply to 2025 and beyond
+        for y in years:
+            if y >= 2025:
+                road_df.loc[road_df['Year'] == y, 'Fuel Share Petrol'] = road_petrol_share
+                road_df.loc[road_df['Year'] == y, 'Fuel Share Diesel'] = road_diesel_share
+                road_df.loc[road_df['Year'] == y, 'Fuel Share EV'] = road_ev_share
+        # (Repeat for rail and air if needed)
+        # Add more controls for adoption rates, policy levers, etc.
+    if st.button("Run Scenario"):
+        st.success("Scenario updated! All visualizations reflect the new parameters.")
 
-st.header('Editable Inputs by Sub-sector')
-road_df = st.data_editor(make_default_df('road'), num_rows="dynamic", key="road_editor")
-rail_df = st.data_editor(make_default_df('rail'), num_rows="dynamic", key="rail_editor")
-air_df = st.data_editor(make_default_df('air'), num_rows="dynamic", key="air_editor")
+elif section == '📈 Dashboard':
+    st.header('📈 Dashboard: Visualize Key Metrics')
+    st.markdown('---')
+    st.subheader("Total CO₂ Emissions by Year (All Sectors)")
+    st.line_chart(emissions_df.set_index("Year")[["Total Emissions"]])
+    st.subheader("Total Cost by Year (All Sectors)")
+    st.line_chart(costs_df.set_index("Year")[["Total Cost"]])
+    st.subheader("Miles Traveled by Sector (Stacked Bar)")
+    st.bar_chart(miles_df.set_index("Year"))
+
+elif section == '🤖 AI Optimization':
+    st.header('🤖 AI-Assisted Scenario/Objective Input')
+    st.markdown('---')
+    st.markdown("After entering your scenario, click the **'Generate Optimization Parameters with AI'** button below.")
+    user_prompt = st.text_area(
+        "Describe your optimization goal or scenario (natural language):",
+        placeholder="e.g., Minimize emissions while keeping costs under £1M and EV share above 30% by 2030."
+    )
+
+    def call_gemini_and_parse(prompt, api_key=None):
+        """
+        Calls Google Gemini API with the user's prompt and parses the response into a params dict.
+        """
+        if api_key is None:
+            api_key = os.getenv("GEMINI_API_KEY")  # Or set your key directly here
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        data = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ]
+        }
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            gemini_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            return parse_llm_response(gemini_text)
+        else:
+            st.error(f"Gemini API error: {response.status_code} {response.text}")
+            return None
+
+    # Example parser for LLM response (to be customized for your prompt/response format)
+    def parse_llm_response(llm_text):
+        """
+        Parse the LLM's text response into a params dictionary.
+        This is a placeholder; implement robust parsing for your use case.
+        """
+        # Example: Use regex, json.loads, or custom logic
+        # For now, return a static dict
+        return {
+            'objective': 'cost',
+            'row7_constraint': True,
+            'max_change_per_year': None,
+            'block_constraints': True,
+            'equality_constraints': True,
+        }
+
+    # --- Optimization Model (from Excel Sheet) ---
+    st.header("Optimization Model (from Excel Sheet)")
+
+    uploaded_file = st.file_uploader("Upload REHIP Model Excel file for Optimization", type=["xlsx"])
+    if uploaded_file:
+        xls = pd.ExcelFile(uploaded_file)
+        model_df = xls.parse("Model", header=None)
+
+        # Create the LP problem
+        model = pulp.LpProblem("Minimize_Total_Cost", pulp.LpMinimize)
+
+        # Define decision variables
+        rows = range(67, 101)
+        cols = range(2, 31)
+        variables = {(i, j): pulp.LpVariable(f"x_{i}_{j}", lowBound=0) for i in rows for j in cols}
+
+        # --- AI/User parameter input section ---
+        params = {
+            'objective': 'cost',  # 'cost', 'emissions', or 'weighted'
+            'row7_constraint': True,
+            'max_change_per_year': None,  # e.g., 10000 or None
+            'block_constraints': True,
+            'equality_constraints': True,
+            # Add more parameters as needed
+        }
+        if st.button("Generate Optimization Parameters with AI"):
+            try:
+                api_key = st.secrets["GEMINI_API_KEY"]
+                with st.spinner("Contacting Gemini AI..."):
+                    ai_params = call_gemini_and_parse(user_prompt, api_key)
+                if ai_params:
+                    params = ai_params
+                    st.write("**AI-generated optimization parameters:**", params)
+                else:
+                    st.warning("Failed to generate parameters from Gemini.")
+            except:
+                st.warning("Gemini API key not configured. Using default parameters.")
+
+        add_objective(model, model_df, variables, params)
+        add_constraints(model, model_df, variables, params)
+
+        # Solve the model
+        model.solve()
+
+        st.write("**Optimization Status:**", pulp.LpStatus[model.status])
+        st.write("**Objective value:**", pulp.value(model.objective))
+        # Optionally, display decision variables
+        # for var in model.variables():
+        #     st.write(var.name, "=", var.varValue)
+    else:
+        st.info("Upload the REHIP Model Excel file to run the optimization model.")
+
+elif section == '⚙️ Settings':
+    st.header('⚙️ Settings & Info')
+    st.markdown('---')
+    st.markdown('Customize your experience or view app info here.')
+    # ... (future settings, about, etc.) ...
 
 # --- Scenario Save/Load Logic ---
 """
@@ -207,35 +442,6 @@ if st.button('Apply 2025 Targets to Scenario'):
     air_df = interpolate_demand(air_df, air_2025_target)
     st.success('2025 targets applied to scenario tables!')
 
-# --- Enhanced Scenario Modeling Section ---
-st.header("Scenario Modeling: Adjust Parameters and Run What-Ifs")
-
-with st.expander("Advanced Scenario Parameters", expanded=False):
-    st.markdown("Adjust fuel shares and adoption rates for each sector.")
-    # Example sliders for fuel shares (can be expanded for more detail)
-    road_petrol_share = st.slider("Road: Petrol Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share Petrol'].values[0]), 0.01)
-    road_diesel_share = st.slider("Road: Diesel Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share Diesel'].values[0]), 0.01)
-    road_ev_share = st.slider("Road: EV Share (2025)", 0.0, 1.0, float(road_df.loc[road_df['Year'] == 2025, 'Fuel Share EV'].values[0]), 0.01)
-    # Normalize shares
-    total_share = road_petrol_share + road_diesel_share + road_ev_share
-    if total_share > 0:
-        road_petrol_share /= total_share
-        road_diesel_share /= total_share
-        road_ev_share /= total_share
-    # Apply to 2025 and beyond
-    for y in years:
-        if y >= 2025:
-            road_df.loc[road_df['Year'] == y, 'Fuel Share Petrol'] = road_petrol_share
-            road_df.loc[road_df['Year'] == y, 'Fuel Share Diesel'] = road_diesel_share
-            road_df.loc[road_df['Year'] == y, 'Fuel Share EV'] = road_ev_share
-    # (Repeat for rail and air if needed)
-    # Add more controls for adoption rates, policy levers, etc.
-
-if st.button("Run Scenario"):
-    st.success("Scenario updated! All visualizations reflect the new parameters.")
-    # In a full implementation, recalculate all outputs and update charts here.
-    # (Future: Add scenario comparison, participatory features, etc.)
-
 # --- Backcasting Calculation and UI ---
 """
 Backcasting Section:
@@ -267,6 +473,7 @@ Calculates and displays a table of total emissions by year, summing across all s
 This provides a quick overview of the emissions trajectory for the current scenario.
 """
 st.header("Summary Table: Total Emissions by Year")
+# Recalculate emissions with current data
 total_emissions = [
     calculate_annual_emissions(road_df)[road_df["Year"] == y].values[0] +
     calculate_annual_emissions(rail_df)[rail_df["Year"] == y].values[0] +
@@ -401,14 +608,17 @@ if uploaded_file:
         # Add more parameters as needed
     }
     if st.button("Generate Optimization Parameters with AI"):
-        api_key = st.secrets["GEMINI_API_KEY"]
-        with st.spinner("Contacting Gemini AI..."):
-            ai_params = call_gemini_and_parse(user_prompt, api_key)
-        if ai_params:
-            params = ai_params
-            st.write("**AI-generated optimization parameters:**", params)
-        else:
-            st.warning("Failed to generate parameters from Gemini.")
+        try:
+            api_key = st.secrets["GEMINI_API_KEY"]
+            with st.spinner("Contacting Gemini AI..."):
+                ai_params = call_gemini_and_parse(user_prompt, api_key)
+            if ai_params:
+                params = ai_params
+                st.write("**AI-generated optimization parameters:**", params)
+            else:
+                st.warning("Failed to generate parameters from Gemini.")
+        except:
+            st.warning("Gemini API key not configured. Using default parameters.")
 
     add_objective(model, model_df, variables, params)
     add_constraints(model, model_df, variables, params)
@@ -433,6 +643,7 @@ st.line_chart(emissions_df.set_index("Year")[["Total Emissions"]])
 
 # Line chart: Total cost by year (all sectors)
 st.subheader("Total Cost by Year (All Sectors)")
+# Recalculate costs with current data
 total_costs = [
     calculate_annual_cost(road_df)[road_df["Year"] == y].values[0] +
     calculate_annual_cost(rail_df)[rail_df["Year"] == y].values[0] +
@@ -444,6 +655,7 @@ st.line_chart(costs_df.set_index("Year")[["Total Cost"]])
 
 # Stacked bar chart: Miles traveled by sector (quick version with st.bar_chart)
 st.subheader("Miles Traveled by Sector (Stacked Bar)")
+# Recalculate miles with current data
 miles_df = pd.DataFrame({
     "Year": years,
     "Road": [road_df.loc[road_df["Year"] == y, "Miles Traveled"].values[0] for y in years],
